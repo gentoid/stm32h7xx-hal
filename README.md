@@ -30,6 +30,7 @@ Supported Configurations
 * __stm32h743v__ (Revision V: stm32h743, stm32h742, stm32h750)
 * __stm32h753v__
 * __stm32h747cm7__ (stm32h747, stm32h757)
+* __stm32h755cm7__
 * __stm32h7b3__
 * __stm32h7b0__
 * __stm32h7a3__

@@ -33,7 +33,7 @@ embedded-hal-1 = { package = "embedded-hal", version = "1" }
 embedded-dma = "0.2.0"
 cortex-m = { version = "^0.7.7", features = ["critical-section-single-core"] }
 defmt = { version = ">=0.2.0,<0.4", optional = true }
-stm32h7 = { version = "^0.15.1", default-features = false }
+stm32h7 = { version = "^0.16.0", default-features = false }
 void = { version = "1.0.2", default-features = false }
 cast = { version = "0.3.0", default-features = false }
 nb = "1.0.0"
@@ -125,6 +125,7 @@ stm32h743v = ["stm32h7/stm32h743v", "device-selected", "revision_v", "rm0433"]
 stm32h753v = ["stm32h7/stm32h753v", "device-selected", "revision_v", "rm0433"]
 stm32h750v = ["stm32h7/stm32h743v", "device-selected", "revision_v", "rm0433"]
 stm32h747cm7 = ["stm32h7/stm32h747cm7", "device-selected", "revision_v", "rm0399", "cm7", "dsi", "smps"]
+stm32h755cm7 = ["stm32h7/stm32h755cm7", "device-selected", "revision_v", "rm0399", "cm7", "dsi", "smps"]
 stm32h7b3 = ["stm32h7/stm32h7b3", "device-selected", "revision_v", "rm0455", "smps"]
 stm32h7b0 = ["stm32h7/stm32h7b3", "device-selected", "revision_v", "rm0455", "smps"]
 stm32h7a3 = ["stm32h7/stm32h7b3", "device-selected", "revision_v", "rm0455", "smps"]
