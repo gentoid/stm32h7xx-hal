@@ -70,8 +70,8 @@ unsafe fn main() -> ! {
     // should uncomment this block.
     // unsafe {
     //     let pwr = &*stm32::PWR::ptr();
-    //     pwr.cr3.modify(|_, w| w.usbregen().set_bit());
-    //     while pwr.cr3.read().usb33rdy().bit_is_clear() {}
+    //     pwr.cr3().modify(|_, w| w.usbregen().set_bit());
+    //     while pwr.cr3().read().usb33rdy().bit_is_clear() {}
     // }
 
     // Get the delay provider.

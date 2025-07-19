@@ -129,14 +129,14 @@ macro_rules! usb_peripheral {
 
                 cortex_m::interrupt::free(|_| {
                     // USB Regulator in BYPASS mode
-                    pwr.cr3.modify(|_, w| w.usb33den().set_bit());
+                    pwr.cr3().modify(|_, w| w.usb33den().set_bit());
 
                     // Enable USB peripheral
-                    rcc.ahb1enr.modify(|_, w| w.$en().set_bit());
+                    rcc.ahb1enr().modify(|_, w| w.$en().set_bit());
 
                     // Reset USB peripheral
-                    rcc.ahb1rstr.modify(|_, w| w.$rst().set_bit());
-                    rcc.ahb1rstr.modify(|_, w| w.$rst().clear_bit());
+                    rcc.ahb1rstr().modify(|_, w| w.$rst().set_bit());
+                    rcc.ahb1rstr().modify(|_, w| w.$rst().clear_bit());
                 });
             }
 
@@ -151,8 +151,13 @@ macro_rules! usb_peripheral {
     };
 }
 
+#[cfg(not(feature = "rm0468"))]
 usb_peripheral! {
     USB1, OTG1_HS_GLOBAL, usb1otgen, usb1otgrst
+}
+#[cfg(feature = "rm0468")]
+usb_peripheral! {
+    USB1, OTG1_HS_GLOBAL, usb1otghsen, usb1otgrst
 }
 pub type Usb1BusType = UsbBus<USB1>;
 
@@ -305,14 +310,22 @@ unsafe impl UsbPeripheral for USB1_ULPI {
 
         cortex_m::interrupt::free(|_| {
             // Enable USB peripheral
-            rcc.ahb1enr.modify(|_, w| w.usb1otgen().enabled());
+            #[cfg(not(feature = "rm0468"))]
+            rcc.ahb1enr().modify(|_, w| w.usb1otgen().enabled());
+            #[cfg(feature = "rm0468")]
+            rcc.ahb1enr().modify(|_, w| w.usb1otghsen().enabled());
 
             // Enable ULPI Clock
-            rcc.ahb1enr.modify(|_, w| w.usb1ulpien().enabled());
+            #[cfg(feature = "rm0399")]
+            rcc.ahb1enr().modify(|_, w| w.usb2ulpien().enabled());
+            #[cfg(feature = "rm0433")]
+            rcc.ahb1enr().modify(|_, w| w.usb2otgulpien().enabled());
+            #[cfg(any(feature = "rm0455", feature = "rm0468"))]
+            rcc.ahb1enr().modify(|_, w| w.usb1otgulpien().enabled());
 
             // Reset USB peripheral
-            rcc.ahb1rstr.modify(|_, w| w.usb1otgrst().set_bit());
-            rcc.ahb1rstr.modify(|_, w| w.usb1otgrst().clear_bit());
+            rcc.ahb1rstr().modify(|_, w| w.usb1otgrst().set_bit());
+            rcc.ahb1rstr().modify(|_, w| w.usb1otgrst().clear_bit());
         });
     }
 

@@ -73,9 +73,7 @@ use crate::stm32;
 use crate::stm32::rcc::{cdccip1r as ccip1r, srdccipr};
 #[cfg(not(feature = "rm0455"))]
 use crate::stm32::rcc::{d2ccip1r as ccip1r, d3ccipr as srdccipr};
-use crate::stm32::spi1::{
-    cfg1::MBR_A as MBR, cfg2::COMM_A as COMM, cfg2::SSIOP_A as SSIOP,
-};
+use crate::stm32::spi1::{cfg1::MBR, cfg2::COMM, cfg2::SSIOP};
 use crate::stm32::{SPI1, SPI2, SPI3, SPI4, SPI5, SPI6};
 use crate::time::Hertz;
 pub use embedded_hal_02::spi::{
@@ -491,7 +489,7 @@ pins! {
 
 macro_rules! check_status_error {
     ($spi:expr; $(  {$flag:ident, $variant:ident, $blk:block}  ),*) => {{
-        let sr = $spi.sr.read();
+        let sr = $spi.sr().read();
 
         return Err(if sr.ovr().is_overrun() {
             nb::Error::Other(Error::Overrun)
@@ -670,19 +668,19 @@ pub trait HalSpi: Sized {
 
 macro_rules! spi {
     (DSIZE, $spi:ident,  u8) => {
-        $spi.cfg1.modify(|_, w| {
+        $spi.cfg1().modify(|_, w| unsafe {
             w.dsize()
                 .bits(8 - 1) // 8 bit words
         });
     };
     (DSIZE, $spi:ident, u16) => {
-        $spi.cfg1.modify(|_, w| {
+        $spi.cfg1().modify(|_, w| unsafe {
             w.dsize()
                 .bits(16 - 1) // 16 bit words
         });
     };
     (DSIZE, $spi:ident, u32) => {
-        $spi.cfg1.modify(|_, w| {
+        $spi.cfg1().modify(|_, w| unsafe {
             w.dsize()
                 .bits(32 - 1) // 32 bit words
         });
@@ -708,7 +706,7 @@ macro_rules! spi {
                         let _ = prec.enable(); // drop, can be recreated by free method
 
                         // Disable SS output
-                        spi.cfg2.write(|w| w.ssoe().disabled());
+                        spi.cfg2().write(|w| w.ssoe().disabled());
 
                         let config: Config = config.into();
 
@@ -724,14 +722,14 @@ macro_rules! spi {
                             65..=128 => MBR::Div128,
                             _ => MBR::Div256,
                         };
-                        spi.cfg1.modify(|_, w| {
+                        spi.cfg1().modify(|_, w| {
                             w.mbr()
                                 .variant(mbr) // master baud rate
                         });
                         spi!(DSIZE, spi, $TY); // modify CFG1 for DSIZE
 
                         // ssi: select slave = master mode
-                        spi.cr1.write(|w| w.ssi().slave_not_selected());
+                        spi.cr1().write(|w| w.ssi().slave_not_selected());
 
                         // Calculate the CS->transaction cycle delay bits.
                         let (assertion_delay, inter_word_delay) = {
@@ -773,7 +771,7 @@ macro_rules! spi {
                         // mstr: master configuration
                         // lsbfrst: MSB first
                         // comm: full-duplex
-                        spi.cfg2.write(|w| {
+                        spi.cfg2().write(|w| unsafe {
                             w.cpha()
                                 .bit(config.mode.phase ==
                                      Phase::CaptureOnSecondTransition)
@@ -803,10 +801,10 @@ macro_rules! spi {
 
                         // Reset to default (might have been set if previously used by a frame transaction)
                         // So that is 1 when it's a frame transaction and 0 when in another mode
-                        spi.cr2.write(|w| w.tsize().bits(matches!(config.hardware_cs.mode, HardwareCSMode::FrameTransaction) as u16));
+                        spi.cr2().write(|w| unsafe { w.tsize().bits(matches!(config.hardware_cs.mode, HardwareCSMode::FrameTransaction) as u16) });
 
                         // spe: enable the SPI bus
-                        spi.cr1.write(|w| w.ssi().slave_not_selected().spe().enabled());
+                        spi.cr1().write(|w| w.ssi().slave_not_selected().spe().enabled());
 
                         Spi { spi, hardware_cs_mode: config.hardware_cs.mode, _word: PhantomData, _ed: PhantomData }
                     }
@@ -815,15 +813,15 @@ macro_rules! spi {
                 impl <Ed> Spi<$SPIX, Ed, $TY> {
                     /// internally disable the SPI without changing its type-state
                     fn internal_disable(&mut self) {
-                        self.spi.cr1.modify(|_, w| w.csusp().requested());
-                        while self.spi.sr.read().eot().is_completed() {}
-                        self.spi.cr1.write(|w| w.ssi().slave_not_selected().spe().disabled());
+                        self.spi.cr1().modify(|_, w| w.csusp().requested());
+                        while self.spi.sr().read().eot().is_completed() {}
+                        self.spi.cr1().write(|w| w.ssi().slave_not_selected().spe().disabled());
                     }
 
                     /// internally enable the SPI without changing its type-state
                     fn internal_enable(&mut self) {
                         self.clear_modf(); // SPE cannot be set when MODF is set
-                        self.spi.cr1.write(|w| w.ssi().slave_not_selected().spe().enabled());
+                        self.spi.cr1().write(|w| w.ssi().slave_not_selected().spe().enabled());
                     }
                 }
 
@@ -852,21 +850,21 @@ macro_rules! spi {
                             return Err(Error::InvalidCall);
                         }
 
-                        if self.spi.cr1.read().cstart().is_started() {
+                        if self.spi.cr1().read().cstart().is_started() {
                             return Err(Error::TransactionAlreadyStarted);
                         }
 
                         // We can only set tsize when spi is disabled
-                        self.spi.cr1.modify(|_, w| w.csusp().requested());
-                        while self.spi.sr.read().eot().is_completed() {}
-                        self.spi.cr1.write(|w| w.ssi().slave_not_selected().spe().disabled());
+                        self.spi.cr1().modify(|_, w| w.csusp().requested());
+                        while self.spi.sr().read().eot().is_completed() {}
+                        self.spi.cr1().write(|w| w.ssi().slave_not_selected().spe().disabled());
 
                         // Set the frame size
-                        self.spi.cr2.write(|w| w.tsize().bits(words.get()));
+                        self.spi.cr2().write(|w| unsafe { w.tsize().bits(words.get()) });
 
                         // Re-enable
                         self.clear_modf(); // SPE cannot be set when MODF is set
-                        self.spi.cr1.write(|w| w.ssi().slave_not_selected().spe().enabled());
+                        self.spi.cr1().write(|w| w.ssi().slave_not_selected().spe().enabled());
 
                         Ok(())
                     }
@@ -876,10 +874,10 @@ macro_rules! spi {
                             return Err(Error::InvalidCall);
                         }
 
-                        self.spi.cr1.modify(|_, w| w.csusp().requested());
-                        while(self.spi.cr1.read().cstart().is_started()) {}
+                        self.spi.cr1().modify(|_, w| w.csusp().requested());
+                        while(self.spi.cr1().read().cstart().is_started()) {}
 
-                        self.spi.ifcr.write(|w| w.txtfc().clear().eotc().clear());
+                        self.spi.ifcr().write(|w| w.txtfc().clear().eotc().clear());
 
                         Ok(())
                     }
@@ -900,19 +898,19 @@ macro_rules! spi {
                     }
 
                     fn enable_dma_rx(&mut self) {
-                        self.spi.cfg1.modify(|_,w| w.rxdmaen().enabled());
+                        self.spi.cfg1().modify(|_,w| w.rxdmaen().enabled());
                     }
 
                     fn disable_dma_rx(&mut self) {
-                        self.spi.cfg1.modify(|_,w| w.rxdmaen().disabled());
+                        self.spi.cfg1().modify(|_,w| w.rxdmaen().disabled());
                     }
 
                     fn enable_dma_tx(&mut self) {
-                        self.spi.cfg1.modify(|_,w| w.txdmaen().enabled());
+                        self.spi.cfg1().modify(|_,w| w.txdmaen().enabled());
                     }
 
                     fn disable_dma_tx(&mut self) {
-                        self.spi.cfg1.modify(|_,w| w.txdmaen().disabled());
+                        self.spi.cfg1().modify(|_,w| w.txdmaen().disabled());
                     }
 
                     fn free(self) -> ($SPIX, rec::$Rec) {
@@ -941,20 +939,20 @@ macro_rules! spi {
                     ///  - Error
                     fn listen(&mut self, event: Event) {
                         match event {
-                            Event::Rxp => self.spi.ier.modify(|_, w|
-                                                              w.rxpie().not_masked()),
-                            Event::Txp => self.spi.ier.modify(|_, w|
-                                                              w.txpie().not_masked()),
-                            Event::Error => self.spi.ier.modify(|_, w| {
+                            Event::Rxp => {self.spi.ier().modify(|_, w|
+                                                              w.rxpie().enabled());}
+                            Event::Txp => {self.spi.ier().modify(|_, w|
+                                                              w.txpie().enabled());}
+                            Event::Error => {self.spi.ier().modify(|_, w| {
                                 w.udrie() // Underrun
-                                    .not_masked()
+                                    .enabled()
                                     .ovrie() // Overrun
-                                    .not_masked()
+                                    .enabled()
                                     .crceie() // CRC error
-                                    .not_masked()
+                                    .enabled()
                                     .modfie() // Mode fault
-                                    .not_masked()
-                            }),
+                                    .enabled()
+                            });}
                         }
                     }
 
@@ -965,60 +963,60 @@ macro_rules! spi {
                     fn unlisten(&mut self, event: Event) {
                         match event {
                             Event::Rxp => {
-                                self.spi.ier.modify(|_, w| w.rxpie().masked());
+                                self.spi.ier().modify(|_, w| w.rxpie().disabled());
                             }
                             Event::Txp => {
-                                self.spi.ier.modify(|_, w| w.txpie().masked());
+                                self.spi.ier().modify(|_, w| w.txpie().disabled());
                             }
                             Event::Error => {
-                                self.spi.ier.modify(|_, w| {
+                                self.spi.ier().modify(|_, w| {
                                     w.udrie() // Underrun
-                                        .masked()
+                                        .disabled()
                                         .ovrie() // Overrun
-                                        .masked()
+                                        .disabled()
                                         .crceie() // CRC error
-                                        .masked()
+                                        .disabled()
                                         .modfie() // Mode fault
-                                        .masked()
-                                })
+                                        .disabled()
+                                });
                             }
                         }
-                        let _ = self.spi.ier.read();
-                        let _ = self.spi.ier.read(); // Delay 2 peripheral clocks
+                        let _ = self.spi.ier().read();
+                        let _ = self.spi.ier().read(); // Delay 2 peripheral clocks
                     }
 
                     /// Return `true` if the TXP flag is set, i.e. new
                     /// data to transmit can be written to the SPI.
                     fn is_txp(&self) -> bool {
-                        self.spi.sr.read().txp().is_not_full()
+                        self.spi.sr().read().txp().is_not_full()
                     }
 
                     /// Return `true` if the RXP flag is set, i.e. new
                     /// data has been received and can be read from the
                     /// SPI.
                     fn is_rxp(&self) -> bool {
-                        self.spi.sr.read().rxp().is_not_empty()
+                        self.spi.sr().read().rxp().is_not_empty()
                     }
 
                     /// Return `true` if the MODF flag is set, i.e. the
                     /// SPI has experienced a mode fault
                     fn is_modf(&self) -> bool {
-                        self.spi.sr.read().modf().is_fault()
+                        self.spi.sr().read().modf().is_fault()
                     }
 
                     /// Return `true` if the OVR flag is set, i.e. new
                     /// data has been received while the receive data
                     /// register was already filled.
                     fn is_ovr(&self) -> bool {
-                        self.spi.sr.read().ovr().is_overrun()
+                        self.spi.sr().read().ovr().is_overrun()
                     }
 
                     /// Clears the MODF flag, which indicates that a
                     /// mode fault has occurred.
                     fn clear_modf(&mut self) {
-                        self.spi.ifcr.write(|w| w.modfc().clear());
-                        let _ = self.spi.sr.read();
-                        let _ = self.spi.sr.read(); // Delay 2 peripheral clocks
+                        self.spi.ifcr().write(|w| w.modfc().clear());
+                        let _ = self.spi.sr().read();
+                        let _ = self.spi.sr().read(); // Delay 2 peripheral clocks
                     }
                 }
 
@@ -1067,7 +1065,7 @@ macro_rules! spi {
                                 // NOTE(read_volatile) read only 1 word
                                 return Ok(unsafe {
                                     ptr::read_volatile(
-                                        &self.spi.rxdr as *const _ as *const $TY,
+                                        &self.spi.rxdr() as *const _ as *const $TY,
                                     )
                                 });
                             }
@@ -1081,7 +1079,7 @@ macro_rules! spi {
                             {
                                 // NOTE(write_volatile) see note above
                                 unsafe {
-                                    let txdr = &self.spi.txdr as *const _ as *const UnsafeCell<$TY>;
+                                    let txdr = &self.spi.txdr() as *const _ as *const UnsafeCell<$TY>;
                                     ptr::write_volatile(
                                         UnsafeCell::raw_get(txdr),
                                         word,
@@ -1089,7 +1087,7 @@ macro_rules! spi {
                                 }
                                 // write CSTART to start a transaction in
                                 // master mode
-                                self.spi.cr1.modify(|_, w| w.cstart().started());
+                                self.spi.cr1().modify(|_, w| w.cstart().started());
 
                                 return Ok(());
                             }
@@ -1111,20 +1109,20 @@ macro_rules! spi {
                             {
                                 // NOTE(write_volatile/read_volatile) write/read only 1 word
                                 unsafe {
-                                    let txdr = &self.spi.txdr as *const _ as *const UnsafeCell<$TY>;
+                                    let txdr = &self.spi.txdr() as *const _ as *const UnsafeCell<$TY>;
                                     ptr::write_volatile(
                                         UnsafeCell::raw_get(txdr),
                                         word,
                                     );
                                     return Ok(ptr::read_volatile(
-                                        &self.spi.rxdr as *const _ as *const $TY,
+                                        &self.spi.rxdr() as *const _ as *const $TY,
                                     ));
                                 }
                             }
                         }, { // else if sr.txc().is_completed() {
                             txc, is_completed,
                             {
-                                let sr = self.spi.sr.read(); // Read SR again on a subsequent PCLK cycle
+                                let sr = self.spi.sr().read(); // Read SR again on a subsequent PCLK cycle
 
                                 if sr.txc().is_completed() && !sr.rxp().is_not_empty() {
                                     // The Tx FIFO completed, but no words were
@@ -1149,14 +1147,14 @@ macro_rules! spi {
                                 // NOTE(read_volatile) read only 1 word
                                 return Ok(unsafe {
                                     ptr::read_volatile(
-                                        &self.spi.rxdr as *const _ as *const $TY,
+                                        &self.spi.rxdr() as *const _ as *const $TY,
                                     )
                                 });
                             }
                         }, { // else if sr.txc().is_completed()
                             txc, is_completed,
                             {
-                                let sr = self.spi.sr.read(); // Read SR again on a subsequent PCLK cycle
+                                let sr = self.spi.sr().read(); // Read SR again on a subsequent PCLK cycle
 
                                 if sr.txc().is_completed() && !sr.rxp().is_not_empty() {
                                     // The Tx FIFO completed, but no words were
@@ -1316,17 +1314,17 @@ macro_rules! spi123sel {
                 /// for SPI1, SPI2, SPI3
                 pub fn kernel_clk(clocks: &CoreClocks) -> Option<Hertz> {
                     #[cfg(not(feature = "rm0455"))]
-                    let ccip1r = unsafe { (*stm32::RCC::ptr()).d2ccip1r.read() };
+                    let ccip1r = unsafe { (*stm32::RCC::ptr()).d2ccip1r().read() };
                     #[cfg(feature = "rm0455")]
-                    let ccip1r = unsafe { (*stm32::RCC::ptr()).cdccip1r.read() };
+                    let ccip1r = unsafe { (*stm32::RCC::ptr()).cdccip1r().read() };
 
                     match ccip1r.spi123sel().variant() {
-                        Some(ccip1r::SPI123SEL_A::Pll1Q) => clocks.pll1_q_ck(),
-                        Some(ccip1r::SPI123SEL_A::Pll2P) => clocks.pll2_p_ck(),
-                        Some(ccip1r::SPI123SEL_A::Pll3P) => clocks.pll3_p_ck(),
+                        Some(ccip1r::SAI1SEL::Pll1Q) => clocks.pll1_q_ck(),
+                        Some(ccip1r::SAI1SEL::Pll2P) => clocks.pll2_p_ck(),
+                        Some(ccip1r::SAI1SEL::Pll3P) => clocks.pll3_p_ck(),
                         // Need a method of specifying pin clock
-                        Some(ccip1r::SPI123SEL_A::I2sCkin) => unimplemented!(),
-                        Some(ccip1r::SPI123SEL_A::Per) => clocks.per_ck(),
+                        Some(ccip1r::SAI1SEL::I2sCkin) => unimplemented!(),
+                        Some(ccip1r::SAI1SEL::Per) => clocks.per_ck(),
                         _ => unreachable!(),
                     }
                 }
@@ -1338,23 +1336,23 @@ macro_rules! spi123sel {
                 /// Panics if the kernel clock is not running
                 pub fn kernel_clk_unwrap(clocks: &CoreClocks) -> Hertz {
                     #[cfg(not(feature = "rm0455"))]
-                    let ccip1r = unsafe { (*stm32::RCC::ptr()).d2ccip1r.read() };
+                    let ccip1r = unsafe { (*stm32::RCC::ptr()).d2ccip1r().read() };
                     #[cfg(feature = "rm0455")]
-                    let ccip1r = unsafe { (*stm32::RCC::ptr()).cdccip1r.read() };
+                    let ccip1r = unsafe { (*stm32::RCC::ptr()).cdccip1r().read() };
 
                     match ccip1r.spi123sel().variant() {
-                        Some(ccip1r::SPI123SEL_A::Pll1Q) => {
+                        Some(ccip1r::SAI1SEL::Pll1Q) => {
                             clocks.pll1_q_ck().expect("SPI123: PLL1_Q must be enabled")
                         }
-                        Some(ccip1r::SPI123SEL_A::Pll2P) => {
+                        Some(ccip1r::SAI1SEL::Pll2P) => {
                             clocks.pll2_p_ck().expect("SPI123: PLL2_P must be enabled")
                         }
-                        Some(ccip1r::SPI123SEL_A::Pll3P) => {
+                        Some(ccip1r::SAI1SEL::Pll3P) => {
                             clocks.pll3_p_ck().expect("SPI123: PLL3_P must be enabled")
                         }
                         // Need a method of specifying pin clock
-                        Some(ccip1r::SPI123SEL_A::I2sCkin) => unimplemented!(),
-                        Some(ccip1r::SPI123SEL_A::Per) => {
+                        Some(ccip1r::SAI1SEL::I2sCkin) => unimplemented!(),
+                        Some(ccip1r::SAI1SEL::Per) => {
                             clocks.per_ck().expect("SPI123: PER clock must be enabled")
                         }
                         _ => unreachable!(),
@@ -1372,17 +1370,17 @@ macro_rules! spi45sel {
                 /// for SPI4, SPI5
                 pub fn kernel_clk(clocks: &CoreClocks) -> Option<Hertz> {
                     #[cfg(not(feature = "rm0455"))]
-                    let ccip1r = unsafe { (*stm32::RCC::ptr()).d2ccip1r.read() };
+                    let ccip1r = unsafe { (*stm32::RCC::ptr()).d2ccip1r().read() };
                     #[cfg(feature = "rm0455")]
-                    let ccip1r = unsafe { (*stm32::RCC::ptr()).cdccip1r.read() };
+                    let ccip1r = unsafe { (*stm32::RCC::ptr()).cdccip1r().read() };
 
                     match ccip1r.spi45sel().variant() {
-                        Some(ccip1r::SPI45SEL_A::Apb) => Some(clocks.pclk2()),
-                        Some(ccip1r::SPI45SEL_A::Pll2Q) => clocks.pll2_q_ck(),
-                        Some(ccip1r::SPI45SEL_A::Pll3Q) => clocks.pll3_q_ck(),
-                        Some(ccip1r::SPI45SEL_A::HsiKer) => clocks.hsi_ck(),
-                        Some(ccip1r::SPI45SEL_A::CsiKer) => clocks.csi_ck(),
-                        Some(ccip1r::SPI45SEL_A::Hse) => clocks.hse_ck(),
+                        Some(ccip1r::SPI45SEL::Apb) => Some(clocks.pclk2()),
+                        Some(ccip1r::SPI45SEL::Pll2Q) => clocks.pll2_q_ck(),
+                        Some(ccip1r::SPI45SEL::Pll3Q) => clocks.pll3_q_ck(),
+                        Some(ccip1r::SPI45SEL::HsiKer) => clocks.hsi_ck(),
+                        Some(ccip1r::SPI45SEL::CsiKer) => clocks.csi_ck(),
+                        Some(ccip1r::SPI45SEL::Hse) => clocks.hse_ck(),
                         _ => unreachable!(),
                     }
                 }
@@ -1394,25 +1392,25 @@ macro_rules! spi45sel {
                 /// Panics if the kernel clock is not running
                 pub fn kernel_clk_unwrap(clocks: &CoreClocks) -> Hertz {
                     #[cfg(not(feature = "rm0455"))]
-                    let ccip1r = unsafe { (*stm32::RCC::ptr()).d2ccip1r.read() };
+                    let ccip1r = unsafe { (*stm32::RCC::ptr()).d2ccip1r().read() };
                     #[cfg(feature = "rm0455")]
-                    let ccip1r = unsafe { (*stm32::RCC::ptr()).cdccip1r.read() };
+                    let ccip1r = unsafe { (*stm32::RCC::ptr()).cdccip1r().read() };
 
                     match ccip1r.spi45sel().variant() {
-                        Some(ccip1r::SPI45SEL_A::Apb) => clocks.pclk2(),
-                        Some(ccip1r::SPI45SEL_A::Pll2Q) => {
+                        Some(ccip1r::SPI45SEL::Apb) => clocks.pclk2(),
+                        Some(ccip1r::SPI45SEL::Pll2Q) => {
                             clocks.pll2_q_ck().expect("SPI45: PLL2_Q must be enabled")
                         }
-                        Some(ccip1r::SPI45SEL_A::Pll3Q) => {
+                        Some(ccip1r::SPI45SEL::Pll3Q) => {
                             clocks.pll3_q_ck().expect("SPI45: PLL3_Q must be enabled")
                         }
-                        Some(ccip1r::SPI45SEL_A::HsiKer) => {
+                        Some(ccip1r::SPI45SEL::HsiKer) => {
                             clocks.hsi_ck().expect("SPI45: HSI clock must be enabled")
                         }
-                        Some(ccip1r::SPI45SEL_A::CsiKer) => {
+                        Some(ccip1r::SPI45SEL::CsiKer) => {
                             clocks.csi_ck().expect("SPI45: CSI clock must be enabled")
                         }
-                        Some(ccip1r::SPI45SEL_A::Hse) => {
+                        Some(ccip1r::SPI45SEL::Hse) => {
                             clocks.hse_ck().expect("SPI45: HSE clock must be enabled")
                         }
                         _ => unreachable!(),
@@ -1430,17 +1428,17 @@ macro_rules! spi6sel {
                 /// for SPI6
                 pub fn kernel_clk(clocks: &CoreClocks) -> Option<Hertz> {
                     #[cfg(not(feature = "rm0455"))]
-                    let srdccipr = unsafe { (*stm32::RCC::ptr()).d3ccipr.read() };
+                    let srdccipr = unsafe { (*stm32::RCC::ptr()).d3ccipr().read() };
                     #[cfg(feature = "rm0455")]
-                    let srdccipr = unsafe { (*stm32::RCC::ptr()).srdccipr.read() };
+                    let srdccipr = unsafe { (*stm32::RCC::ptr()).srdccipr().read() };
 
                     match srdccipr.spi6sel().variant() {
-                        Some(srdccipr::SPI6SEL_A::RccPclk4) => Some(clocks.pclk4()),
-                        Some(srdccipr::SPI6SEL_A::Pll2Q) => clocks.pll2_q_ck(),
-                        Some(srdccipr::SPI6SEL_A::Pll3Q) => clocks.pll3_q_ck(),
-                        Some(srdccipr::SPI6SEL_A::HsiKer) => clocks.hsi_ck(),
-                        Some(srdccipr::SPI6SEL_A::CsiKer) => clocks.csi_ck(),
-                        Some(srdccipr::SPI6SEL_A::Hse) => clocks.hse_ck(),
+                        Some(srdccipr::SPI6SEL::RccPclk4) => Some(clocks.pclk4()),
+                        Some(srdccipr::SPI6SEL::Pll2Q) => clocks.pll2_q_ck(),
+                        Some(srdccipr::SPI6SEL::Pll3Q) => clocks.pll3_q_ck(),
+                        Some(srdccipr::SPI6SEL::HsiKer) => clocks.hsi_ck(),
+                        Some(srdccipr::SPI6SEL::CsiKer) => clocks.csi_ck(),
+                        Some(srdccipr::SPI6SEL::Hse) => clocks.hse_ck(),
                         _ => unreachable!(),
                     }
                 }
@@ -1448,25 +1446,25 @@ macro_rules! spi6sel {
                 /// for SPI6
                 pub fn kernel_clk_unwrap(clocks: &CoreClocks) -> Hertz {
                     #[cfg(not(feature = "rm0455"))]
-                    let srdccipr = unsafe { (*stm32::RCC::ptr()).d3ccipr.read() };
+                    let srdccipr = unsafe { (*stm32::RCC::ptr()).d3ccipr().read() };
                     #[cfg(feature = "rm0455")]
-                    let srdccipr = unsafe { (*stm32::RCC::ptr()).srdccipr.read() };
+                    let srdccipr = unsafe { (*stm32::RCC::ptr()).srdccipr().read() };
 
                     match srdccipr.spi6sel().variant() {
-                        Some(srdccipr::SPI6SEL_A::RccPclk4) => clocks.pclk4(),
-                        Some(srdccipr::SPI6SEL_A::Pll2Q) => {
+                        Some(srdccipr::SPI6SEL::RccPclk4) => clocks.pclk4(),
+                        Some(srdccipr::SPI6SEL::Pll2Q) => {
                             clocks.pll2_q_ck().expect("SPI6: PLL2_Q must be enabled")
                         }
-                        Some(srdccipr::SPI6SEL_A::Pll3Q) => {
+                        Some(srdccipr::SPI6SEL::Pll3Q) => {
                             clocks.pll3_q_ck().expect("SPI6: PLL3_Q must be enabled")
                         }
-                        Some(srdccipr::SPI6SEL_A::HsiKer) => {
+                        Some(srdccipr::SPI6SEL::HsiKer) => {
                             clocks.hsi_ck().expect("SPI6: HSI clock must be enabled")
                         }
-                        Some(srdccipr::SPI6SEL_A::CsiKer) => {
+                        Some(srdccipr::SPI6SEL::CsiKer) => {
                             clocks.csi_ck().expect("SPI6: CSI clock must be enabled")
                         }
-                        Some(srdccipr::SPI6SEL_A::Hse) => {
+                        Some(srdccipr::SPI6SEL::Hse) => {
                             clocks.hse_ck().expect("SPI6: HSE clock must be enabled")
                         }
                         _ => unreachable!(),
